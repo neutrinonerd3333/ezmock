@@ -16,6 +16,8 @@ import nbodykit.cosmology
 import nbodykit.source.catalog
 
 
+# TODO make these globals configurable
+
 scratch_path = os.environ['SCRATCH']
 EZMOCK_OUT_DIR = os.path.join(scratch_path, 'ezmock', 'mock_output/')  # this slash is important
 # EZmock doesn't sanitize input :<
@@ -26,9 +28,8 @@ EZMOCK_TEMP_DIR = os.path.join(scratch_path, 'ezmock', 'tempfiles/')
 os.makedirs(EZMOCK_TEMP_DIR, exist_ok=True)
 
 
-PLANCK15PK_PATH = '/home/users/txz/EZmock_eBOSS_LRG_ELG_empty/pks-and-corrs/20191026-planck15-loguniform-pk.dat'
-
-EZMOCK_BINARY_PATH = '/home/users/txz/EZmock_eBOSS_LRG_ELG_empty/fortran/pro_EZmock_pk_cf'
+PLANCK15PK_PATH = '~/EZmock_eBOSS_LRG_ELG_empty/pks-and-corrs/20191026-planck15-loguniform-pk.dat'
+EZMOCK_BINARY_PATH = '~/EZmock_eBOSS_LRG_ELG_empty/fortran/pro_EZmock_pk_cf'
 
 
 def fortran_repr(obj):
@@ -143,14 +144,15 @@ def generate_ezmock_params(
     # fixed
     params['scatter'] = 10
     params['use_whitenoise_file'] = False
+    # has no effect but must be included
     params['whitenoise_file'] = '/home2/chuang/data/BigMD_BDM3p5_and_white_noise/BigMD_WhiteNoise/BigMD_960_wn_delta'
 
     params['pkfile'] = pk_file_path
 
     # tunes BAO signal, but has no effect if >= 1
     params['antidamping'] = 2
+    
     # not used if antidamping > 1
-
     params['pknwfile'] = '~/EZmock_eBOSS_LRG_ELG_empty/pks-and-corrs/PlanckDM.nowiggle.pk'
 
     # correlation function computation
@@ -244,7 +246,7 @@ class EZmock():
     """
     
     # TODO don't hardcode! this
-    jinja_loader = jinja2.FileSystemLoader('/home/users/txz/ezmock-templates')
+    jinja_loader = jinja2.FileSystemLoader('../templates')
     jinja_template_env = jinja2.Environment(loader=jinja_loader)
     ezmock_submit_template = jinja_template_env.get_template('ezmock-submit-template.sbatch')
     
@@ -280,16 +282,22 @@ class EZmock():
         sbatch_filename = '{}.sbatch'.format(temp_filename)
         sbatch_path = os.path.join(EZMOCK_TEMP_DIR, sbatch_filename)
         
+        # TODO refactor
         # we needed ~12m for a 5.12m catalog on 2 Gpc/h box
         # bottlenecked by 2PCF computation, which scales:
         # - linearly with volume (cube with boxsize)
         # - quadratic with effective density (density * dilute_factor)
         # so equivalently, scales as dilute^2 * N^2 / L^3
-        number_ratio = params['expect_sum_pdf']/5120000
+        number_ratio = params['expect_sum_pdf'] / 5120000
         side_length_ratio = params['boxsize'] / 2000
-        time_limit_2pcf = datetime.timedelta(minutes=20) * params['dilute_factor']**2 * (number_ratio)**2 / (side_length_ratio)**(-3)
+        dilution = params['dilute_factor']
+        time_limit_2pcf = datetime.timedelta(minutes=20) \
+            * dilution**2 \
+            * number_ratio**2 \
+            * (side_length_ratio)**(-3)
         MIN_TIME = datetime.timedelta(minutes=20)
         time_limit = max(MIN_TIME, time_limit_2pcf)
+
         self._generate_ezmock_sbatch(
             sbatch_path,
             params_file_path,
@@ -394,10 +402,17 @@ class EZmock():
         sbatch_path,
         params_file_path,
         time_limit,
-        ezmock_binary='/home/users/txz/EZmock_eBOSS_LRG_ELG_empty/fortran/pro_EZmock_pk_cf',
+        ezmock_binary=EZMOCK_BINARY_PATH,
     ):
         """
-        TODO
+        Parameters
+        ----------
+        sbatch_path : str
+        params_file_path : str
+        time_limit : datetime.timedelta
+            time limit for the slurm job
+        ezmock_binary : str
+            path to the EZmock binary
         """
         DAY = datetime.timedelta(days=1)
         SECOND = datetime.timedelta(seconds=1)
@@ -409,9 +424,7 @@ class EZmock():
             time_limit_str = str(rounded_remainder)
         else:
             time_limit_str = '{}-{}'.format(days, rounded_remainder)
-            
-#         time_limit_str = if time_limit >= DAY else str(time_limit)
-        
+
         print('Time limit {}'.format(time_limit_str))
     
         generated_sbatch = cls.ezmock_submit_template.render(

@@ -11,6 +11,6 @@ setuptools.setup(
     description="Zel'dovich-approximation-based mock galaxy catalog creation [1409.1124]",
     long_description=readme,
 long_description_content_type='text/markdown',
-    install_requires=['nbodykit'],
+    install_requires=['jinja2, nbodykit'],
 )
 
