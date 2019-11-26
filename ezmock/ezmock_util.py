@@ -234,8 +234,8 @@ class EZmock():
     """
     
     _current_dir = os.path.dirname(os.path.realpath(__file__))
-    template_dir = os.path.join(_current_dir, '../templates')
-    jinja_loader = jinja2.FileSystemLoader(template_dir)  # jinja wants abs path
+    _template_dir = os.path.join(_current_dir, '../templates')
+    jinja_loader = jinja2.FileSystemLoader(_template_dir)  # jinja wants abs path
     jinja_template_env = jinja2.Environment(loader=jinja_loader)
     ezmock_submit_template = jinja_template_env.get_template('ezmock-submit-template.sbatch')
     
