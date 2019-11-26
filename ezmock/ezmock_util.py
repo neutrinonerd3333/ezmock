@@ -1,9 +1,9 @@
 import copy
 import datetime
 import fnmatch
-import json
 import os
 import os.path
+import pickle
 import random
 import shlex
 import shutil
@@ -146,8 +146,9 @@ def generate_ezmock_params(
 
     # fixed
     params['scatter'] = 10
-    params['use_whitenoise_file'] = False
+    
     # has no effect but must be included
+    params['use_whitenoise_file'] = False
     params['whitenoise_file'] = '/home2/chuang/data/BigMD_BDM3p5_and_white_noise/BigMD_WhiteNoise/BigMD_960_wn_delta'
 
     params['pkfile'] = pk_file_path
@@ -239,6 +240,50 @@ class EZmock():
     jinja_template_env = jinja2.Environment(loader=jinja_loader)
     ezmock_submit_template = jinja_template_env.get_template('ezmock-submit-template.sbatch')
     
+    @staticmethod
+    def _compute_time_limit(box_side_length, catalog_size, dilute_factor):
+        """
+        Compute a reasonable (if somewhat conservative) time limit for a Slurm
+        job for a single EZmock. This is based on the fact that we're bottle-
+        necked by computation of the two-point function, which scales
+        - linearly with volume
+        - quadratic with density of objects
+        
+        We can re-express this in terms of parameter values we know (box side
+        length L, number of objects N, and dilute_factor) to get scaling
+        
+        dilute^2 * N^2 / L^3.
+        
+        For a 5.12m catalog on a 2 Gpc/h box with no dilution, we needed 12 min.
+        
+        We round this up to 20 minutes and scale as described, but require
+        time limits above a minimum of 20 minutes.
+        
+        Parameters
+        ----------
+        box_side_length : number
+            Side length of the simulation box in Mpc/h
+        catalog_size : number
+            Number of objects in the catalog
+        dilute_factor : number
+            Dilution factor
+        
+        Returns
+        -------
+        time_limit : datetime.timedelta
+            Computed time limit based on above scaling.
+        """
+        number_ratio = catalog_size / 5120000
+        side_length_ratio = box_side_length / 2000
+        
+        time_limit_2pcf = datetime.timedelta(minutes=20) \
+            * dilute_factor**2 \
+            * number_ratio**2 \
+            * side_length_ratio**(-3)
+        MIN_TIME = datetime.timedelta(minutes=20)
+        return max(MIN_TIME, time_limit_2pcf)
+        
+    
     @classmethod
     def generate(
         cls,
@@ -271,24 +316,14 @@ class EZmock():
         # create shell script for EZmock
         sbatch_filename = '{}.sbatch'.format(temp_filename)
         sbatch_path = os.path.join(EZMOCK_TEMP_DIR, sbatch_filename)
-        
-        # TODO refactor
-        # we needed ~12m for a 5.12m catalog on 2 Gpc/h box
-        # bottlenecked by 2PCF computation, which scales:
-        # - linearly with volume (cube with boxsize)
-        # - quadratic with effective density (density * dilute_factor)
-        # so equivalently, scales as dilute^2 * N^2 / L^3
-        number_ratio = params['expect_sum_pdf'] / 5120000
-        side_length_ratio = params['boxsize'] / 2000
-        dilution = params['dilute_factor']
-        time_limit_2pcf = datetime.timedelta(minutes=20) \
-            * dilution**2 \
-            * number_ratio**2 \
-            * (side_length_ratio)**(-3)
-        MIN_TIME = datetime.timedelta(minutes=20)
-        time_limit = max(MIN_TIME, time_limit_2pcf)
 
-        self._generate_ezmock_sbatch(
+        time_limit = cls._compute_time_limit(
+            params['boxsize'],
+            params['expect_sum_pdf'],
+            params['dilute_factor']
+        )
+
+        cls._generate_ezmock_sbatch(
             sbatch_path,
             params_file_path,
             time_limit,
@@ -314,18 +349,15 @@ class EZmock():
         output_params_file_path = os.path.join(EZMOCK_OUT_DIR, output_params_file_name)
         shutil.copyfile(params_file_path, output_params_file_path)
         
-        params_json = os.path.join(EZMOCK_OUT_DIR, output_prefix + '.json')
-        with open(params_json, 'w') as fp:
-            json.dump(coparams, fp)
+        params_pickle = os.path.join(EZMOCK_OUT_DIR, output_prefix + '.pickle')
+        with open(params_pickle, 'wb') as fp:
+            pickle.dump(coparams, fp)
     
     
-    def __init__(
-        self,
-        output_prefix,
-    ):
+    def __init__(self, output_prefix):
         self.name = output_prefix
-        with open(os.path.join(EZMOCK_OUT_DIR, output_prefix + '.json')) as fp:
-            self.params = json.load(fp)
+        with open(os.path.join(EZMOCK_OUT_DIR, output_prefix + '.pickle'), 'rb') as fp:
+            self.params = pickle.load(fp)
         self._import_ezmock_output(self.params['compute_CF'], self.params['compute_CF_zdist'])
 
         
@@ -407,11 +439,13 @@ class EZmock():
         fname = os.path.join(EZMOCK_OUT_DIR, "{}.dat".format(self.name))
         column_names = ['x', 'y', 'z', 'vx', 'vy', 'vz']
         catalog = nbodykit.source.catalog.file.CSVCatalog(fname, column_names)
+
         catalog['Position'] = catalog['x'][:, None] * [1, 0, 0] + \
             catalog['y'][:, None] * [0, 1, 0] + catalog['z'][:, None] * [0, 0, 1]
         catalog['Velocity'] = catalog['vx'][:, None] * [1, 0, 0] + \
             catalog['vy'][:, None] * [0, 1, 0] + catalog['vz'][:, None] * [0, 0, 1]
 
+        # see nbodykit docs for meaning
         catalog['VelocityOffset'] = self.params['rsd_factor'] * catalog['Velocity']
 
         line_of_sight = [0, 0, 1]
@@ -419,9 +453,9 @@ class EZmock():
 
         catalog.attrs['BoxSize']= [self.params['boxsize']]*3
 
+        catalog.los = line_of_sight
         for key, val in kwargs.items():
             catalog.attrs[key] = val
-            catalog.los = line_of_sight
 
         return catalog
 
@@ -443,18 +477,8 @@ class EZmock():
         ezmock_binary : str
             path to the EZmock binary
         """
-        DAY = datetime.timedelta(days=1)
-        SECOND = datetime.timedelta(seconds=1)
-        days, remainder = divmod(time_limit, DAY)
-        total_seconds = remainder // SECOND
-        rounded_remainder = datetime.timedelta(seconds=total_seconds)
-        
-        if days == 0:
-            time_limit_str = str(rounded_remainder)
-        else:
-            time_limit_str = '{}-{}'.format(days, rounded_remainder)
-
-        print('Time limit {}'.format(time_limit_str))
+        time_limit_str = cls._slurm_time_format(time_limit)
+        print('Time limit = {}'.format(time_limit_str))
     
         generated_sbatch = cls.ezmock_submit_template.render(
             job_name='ezmock',
@@ -465,3 +489,34 @@ class EZmock():
         with open(sbatch_path, 'w+') as fp:
             fp.write(generated_sbatch)
         os.chmod(sbatch_path, 0o755)
+        
+    @staticmethod
+    def _slurm_time_format(timedelta):
+        """
+        Format the duration `timedelta` in the Slurm time limit format,
+        as specified in the sbatch(1) man page. Rounds down to the nearest
+        second.
+        
+        Parameters
+        ----------
+        timedelta : datetime.timedelta
+            Duration to format.
+            
+        Returns
+        -------
+        time_str : str
+            Slurm-formatted string.
+        """
+        DAY = datetime.timedelta(days=1)
+        SECOND = datetime.timedelta(seconds=1)
+        days, remainder = divmod(timedelta, DAY)
+        total_seconds = remainder // SECOND
+        rounded_remainder = datetime.timedelta(seconds=total_seconds)
+        
+        if days == 0:
+            time_str = str(rounded_remainder)
+        else:
+            time_str = '{}-{}'.format(days, rounded_remainder)
+
+        return time_str
+        
