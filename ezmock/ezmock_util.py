@@ -82,7 +82,6 @@ def generate_ezmock_params(
     expect_A_pdf=0.25,
     density_cut=0,
     scatter2=1,
-    zdist_rate=74.07, # !f*H(z)*a/h = f*H/(1+z)/h = 0.84426*109.403/1.84/0.6777
     zdist_fog=150,
     iseed=None,
     dilute_factor=None,
@@ -106,19 +105,25 @@ def generate_ezmock_params(
     params['boxsize'] = boxsize
     params['grid_num'] = grid_num
     
-    params['redshift'] = redshift
-    2
-    linear_pk_obj = nbodykit.cosmology.LinearPower(cosmology, redshift)
+    z = redshift
+    params['redshift'] = z
+
+    linear_pk_obj = nbodykit.cosmology.LinearPower(cosmology, z)
     sigma8_z0 = linear_pk_obj.sigma8
     sigma8_z = linear_pk_obj.sigma_r(8)
     growth_factor = sigma8_z / sigma8_z0
     params['grow2z0'] = growth_factor**2
     
+    # f * H(z) * a/h = f * H/(1+z)/h
+    growth_rate = cosmology.scale_independent_growth_rate(z)  # 'f'
+    efunc = cosmology.efunc(z)  # This is H(z) / (100 * h) in units of km/s/Mpc
+    scale_factor = 1 / (1 + z)
+    params['zdist_rate'] = growth_rate * 100 * efunc * scale_factor
+    
     params['expect_sum_pdf'] = int(density * boxsize**3)
     params['expect_A_pdf'] = expect_A_pdf
     params['density_cut'] = density_cut
     params['scatter2'] = scatter2
-    params['zdist_rate'] = zdist_rate
     params['zdist_fog'] = zdist_fog
 
     if iseed is None:
@@ -165,7 +170,7 @@ def generate_ezmock_params(
     params['skiplines'] = 0
     params['max_r'] = cf_max_r
     params['bin_size'] = cf_bin_size
-    params['om'] = 0.3089  # from Planck 2015, to match UNIT sim omega_matter
+    params['om'] = cosmology.Omega0_m
     params['twod_corr_suffix'] = '.bin5.corr'
 
     return params
@@ -243,22 +248,20 @@ class EZmock():
     jinja_template_env = jinja2.Environment(loader=jinja_loader)
     ezmock_submit_template = jinja_template_env.get_template('ezmock-submit-template.sbatch')
     
-    
-    def __init__(
-        self,
+    @classmethod
+    def generate(
+        cls,
         output_prefix,
         verbose=False,
         sbatch=False,
         ezmock_binary=EZMOCK_BINARY_PATH,
-        **kwargs
     ):
-        self.name = output_prefix
-        self.params = generate_ezmock_params(output_prefix, **kwargs)
-        
         if does_output_prefix_exist(output_prefix):
-            self._import_ezmock_output(self.params['compute_CF'], self.params['compute_CF_zdist'])
-            return None
-
+            raise UserWarning('output_prefix {} already exists!'.format(output_prefix))
+            return
+        
+        params = generate_ezmock_params(output_prefix, **kwargs)
+        
         # timestamp we use for all generated files
         # not unique because of daylight savings time, hmmm
         timestamp = time.strftime('%Y%m%d-%H%M%S')
@@ -269,7 +272,7 @@ class EZmock():
         # make params file for EZmock
         params_filename = '{}.ini'.format(temp_filename)
         params_file_path = os.path.join(EZMOCK_TEMP_DIR, params_filename)
-        generate_ezmock_input_file(self.params, params_file_path)
+        generate_ezmock_input_file(params, params_file_path)
         if verbose:
             print('Generated params file at {}'.format(params_file_path))
             
@@ -282,9 +285,9 @@ class EZmock():
         # - linearly with volume (cube with boxsize)
         # - quadratic with effective density (density * dilute_factor)
         # so equivalently, scales as dilute^2 * N^2 / L^3
-        number_ratio = self.params['expect_sum_pdf']/5120000
-        side_length_ratio = self.params['boxsize'] / 2000
-        time_limit_2pcf = datetime.timedelta(minutes=20) * self.params['dilute_factor']**2 * (number_ratio)**2 / (side_length_ratio)**(-3)
+        number_ratio = params['expect_sum_pdf']/5120000
+        side_length_ratio = params['boxsize'] / 2000
+        time_limit_2pcf = datetime.timedelta(minutes=20) * params['dilute_factor']**2 * (number_ratio)**2 / (side_length_ratio)**(-3)
         MIN_TIME = datetime.timedelta(minutes=20)
         time_limit = max(MIN_TIME, time_limit_2pcf)
         self._generate_ezmock_sbatch(
@@ -302,9 +305,9 @@ class EZmock():
 
         # make sure subprocess stdout comes out!
         process_stdout = None if verbose else subprocess.DEVNULL
-        self.process = subprocess.run(ezmock_cmd, stdout=process_stdout)
+        process = subprocess.run(ezmock_cmd, stdout=process_stdout)
 
-        if self.process.returncode != 0:
+        if process.returncode != 0:
             raise RuntimeError('EZmock returned with nonzero exit code')
 
         # copy the params file into the output directory
@@ -313,8 +316,19 @@ class EZmock():
         output_params_file_path = os.path.join(EZMOCK_OUT_DIR, output_params_file_name)
         shutil.copyfile(params_file_path, output_params_file_path)
         
-        if not sbatch:
-            self._import_ezmock_output(self.params['compute_CF'], self.params['compute_CF_zdist'])
+        params_json = os.path.join(EZMOCK_OUT_DIR, output_prefix + '.json')
+        with open(params_json, 'w') as fp:
+            json.dump(params, fp)
+    
+    
+    def __init__(
+        self,
+        output_prefix,
+    ):
+        self.name = output_prefix
+        with open(os.path.join(EZMOCK_OUT_DIR, output_prefix + '.json')) as fp:
+            self.params = json.load(fp)
+        self._import_ezmock_output(self.params['compute_CF'], self.params['compute_CF_zdist'])
 
         
     def _import_ezmock_output(self, import_cf_real, import_cf_zdist):
