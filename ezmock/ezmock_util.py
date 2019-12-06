@@ -226,6 +226,81 @@ def does_output_prefix_exist(output_prefix):
     return output_prefix in seen_output_prefixes
 
 
+class EZmockJob():
+    _current_dir = os.path.dirname(os.path.realpath(__file__))
+    _template_dir = os.path.join(_current_dir, '../templates')
+    jinja_loader = jinja2.FileSystemLoader(_template_dir)  # jinja wants abs path
+    jinja_template_env = jinja2.Environment(loader=jinja_loader)
+    ezmock_multisubmit_template = jinja_template_env.get_template('ezmock-multisubmit-template.sbatch')
+    
+    def __init__(self, time_limit, filenames):
+        """
+        filenames : list of tuples (params_file, output_params_file, params_pickle, output_params_pickle)
+        """
+        self.time_limit = time_limit
+        self.filenames = copy.deepcopy(filenames)
+    
+    def run(self, verbose=True):
+        cls.ezmock_multisubmit_template.render(
+            job_name='ezmock',
+            time_limit=cls._slurm_time_format(self.time_limit),
+            ezmock_binary=EZMOCK_BINARY_PATH,
+            filenames=self.filenames,
+        )
+        
+        with open(sbatch_path, 'w+') as fp:
+            fp.write(generated_sbatch)
+        os.chmod(sbatch_path, 0o755)
+        
+        if verbose:
+            print('Generated sbatch at {}'.format(sbatch_path))
+
+        # run EZmock
+        ezmock_cmd = ['sbatch', shlex.quote(sbatch_path)] if sbatch else [shlex.quote(sbatch_path)]
+        print(' '.join(ezmock_cmd))
+        
+        process = subprocess.run(ezmock_cmd)
+        if process.returncode != 0:
+            raise RuntimeError('EZmock returned with nonzero exit code')
+
+    def __add__(self, other):
+        return EZmockJob(
+            self.time_limit + other.time_limit,
+            self.filenames + other.filenames,
+        )
+    
+    
+    @staticmethod
+    def _slurm_time_format(timedelta):
+        """
+        Format the duration `timedelta` in the Slurm time limit format,
+        as specified in the sbatch(1) man page. Rounds down to the nearest
+        second.
+        
+        Parameters
+        ----------
+        timedelta : datetime.timedelta
+            Duration to format.
+            
+        Returns
+        -------
+        time_str : str
+            Slurm-formatted string.
+        """
+        DAY = datetime.timedelta(days=1)
+        SECOND = datetime.timedelta(seconds=1)
+        days, remainder = divmod(timedelta, DAY)
+        total_seconds = remainder // SECOND
+        rounded_remainder = datetime.timedelta(seconds=total_seconds)
+        
+        if days == 0:
+            time_str = str(rounded_remainder)
+        else:
+            time_str = '{}-{}'.format(days, rounded_remainder)
+
+        return time_str
+
+
 class EZmock():
     """
     A Python wrapper around individual EZmock instances.
