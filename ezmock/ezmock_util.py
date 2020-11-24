@@ -41,106 +41,76 @@ class EZmock():
     Parameters
     ----------
     """
-    
-#     _current_dir = os.path.dirname(os.path.realpath(__file__))
-#     _template_dir = os.path.join(_current_dir, '../templates')
-#     jinja_loader = jinja2.FileSystemLoader(_template_dir)  # jinja wants abs path
-#     jinja_template_env = jinja2.Environment(loader=jinja_loader)
-#     ezmock_submit_template = jinja_template_env.get_template('ezmock-submit-template.sbatch')
-    
-#     @classmethod
-#     def generate(
-#         cls,
-#         output_prefix,
-#         verbose=False,
-#         sbatch=False,
-#         ezmock_binary=EZMOCK_BINARY_PATH,
-#         **kwargs,
-#     ):
-#         if does_output_prefix_exist(output_prefix):
-#             raise UserWarning(f'output_prefix {output_prefix} already exists!')
-#             return
-        
-#         params, coparams = generate_ezmock_params(output_prefix, **kwargs)
-        
-#         # timestamp we use for all generated files
-#         # not unique because of daylight savings time, hmmm
-#         timestamp = time.strftime('%Y%m%d-%H%M%S')
 
-#         # use this filename to guarantee uniqueness (jobs might be submitted within a second!)
-#         temp_filename = f'{timestamp}-{output_prefix}'
-
-#         # make params file for EZmock
-#         params_filename = f'{temp_filename}.ini'
-#         params_file_path = os.path.join(EZMOCK_TEMP_DIR, params_filename)
-#         generate_ezmock_input_file(params, params_file_path)
-#         if verbose:
-#             print(f'Generated params file at {params_file_path}')
-            
-#         # create shell script for EZmock
-#         sbatch_filename = f'{temp_filename}.sbatch'
-#         sbatch_path = os.path.join(EZMOCK_TEMP_DIR, sbatch_filename)
-
-#         time_limit = _compute_time_limit(
-#             params['boxsize'],
-#             params['expect_sum_pdf'],
-#             params['dilute_factor']
-#         )
-
-#         cls._generate_ezmock_sbatch(
-#             sbatch_path,
-#             params_file_path,
-#             time_limit,
-#             ezmock_binary=ezmock_binary,
-#         )
-#         if verbose:
-#             print('Generated sbatch at {}'.format(sbatch_path))
-
-#         # run EZmock
-#         ezmock_cmd = ['sbatch', shlex.quote(sbatch_path)] if sbatch else [shlex.quote(sbatch_path)]
-#         print(' '.join(ezmock_cmd))
-
-#         # make sure subprocess stdout comes out!
-#         process_stdout = None if verbose else subprocess.DEVNULL
-#         process = subprocess.run(ezmock_cmd, stdout=process_stdout)
-
-#         if process.returncode != 0:
-#             raise RuntimeError('EZmock returned with nonzero exit code')
-
-#         # copy the params file into the output directory
-#         # eventually make this part of fortran code
-#         output_params_file_name = output_prefix + '.ini'
-#         output_params_file_path = os.path.join(EZMOCK_OUT_DIR, output_params_file_name)
-#         shutil.copyfile(params_file_path, output_params_file_path)
-        
-#         params_pickle = os.path.join(EZMOCK_OUT_DIR, output_prefix + '.pickle')
-#         with open(params_pickle, 'wb') as fp:
-#             pickle.dump(coparams, fp)
-    
-    
-    def __init__(self, output_prefix):
+    def __init__(self, output_prefix, output_dir=EZMOCK_OUT_DIR):
         self.name = output_prefix
-        with open(os.path.join(EZMOCK_OUT_DIR, output_prefix + '.pickle'), 'rb') as fp:
+        self.output_dir = output_dir
+        with open(os.path.join(output_dir, output_prefix + '.pickle'), 'rb') as fp:
             self.params = pickle.load(fp)
         self._import_ezmock_output(self.params['compute_CF'], self.params['compute_CF_zdist'])
+        self._bispec = None
 
-        
+
+    @property
+    def bispec(self):
+        if self._bispec is not None:
+            return self._bispec
+
+        realspace_output_file = os.path.join(self.output_dir, f'{self.name}.dat.CICassign.bispec')
+        zspace_output_file = os.path.join(self.output_dir, f'{self.name}.dat.CICassign.bispec.zdist')
+
+        # TODO make this configurable!
+        bispec_binary = os.path.join(os.environ['HOME'], 'codez', 'bispec_box', 'bispec')
+        conf_file = os.path.join(os.environ['HOME'], 'codez', 'bispec_box', 'unit-fits-bispec.conf')
+        env = dict(os.environ, OMP_NUM_THREADS='4')
+
+        boxsize = self.params['boxsize']
+
+        if not os.path.isfile(realspace_output_file):
+            catalog_file = self._catalog_fname()
+            bispec_cmd = f'{bispec_binary} --conf={conf_file} --box-max={boxsize} --input={catalog_file} --output={realspace_output_file}'
+            cmd = f'module load gsl && {bispec_cmd}'
+            subprocess.run(
+                cmd,
+                env=env,
+                check=True,
+                shell=True,
+            )
+
+        if not os.path.isfile(zspace_output_file):
+            self._save_zspace_catalog()
+
+            zspace_catalog_file = self._zspace_catalog_fname()
+            bispec_cmd = f'{bispec_binary} --conf={conf_file} --box-max={boxsize} --input={zspace_catalog_file} --output={zspace_output_file}'
+            subprocess.check_output(
+                f'module load gsl && {bispec_cmd}',
+                env=env,
+                shell=True
+            )
+
+        self._bispec = {
+            'real': np.genfromtxt(realspace_output_file, names=True),
+            'zdist': np.genfromtxt(zspace_output_file, names=True),
+        }
+
+        return self._bispec
+
     def _import_ezmock_output(self, import_cf_real, import_cf_zdist):
         """
         """
         self.catalog = self._import_ezmock_catalog()
-        
+
         # TODO refactor this
-        
-        pk_path = os.path.join(EZMOCK_OUT_DIR, f'{self.name}.dat.CICassign.NGPbin.pk.mono')
+
+        pk_path = os.path.join(self.output_dir, f'{self.name}.dat.CICassign.NGPbin.pk.mono')
         pk_real = np.genfromtxt(pk_path, names=['k', 'power'])
-        
-        pk_path = os.path.join(EZMOCK_OUT_DIR, f'{self.name}.dat.CICassign.NGPbin.pk.zdist.mono')
+
+        pk_path = os.path.join(self.output_dir, f'{self.name}.dat.CICassign.NGPbin.pk.zdist.mono')
         pk_zdist_mono = np.genfromtxt(pk_path, names=['k', 'power'])
-        
-        pk_path = os.path.join(EZMOCK_OUT_DIR, f'{self.name}.dat.CICassign.NGPbin.pk.zdist.quad')
+
+        pk_path = os.path.join(self.output_dir, f'{self.name}.dat.CICassign.NGPbin.pk.zdist.quad')
         pk_zdist_quad = np.genfromtxt(pk_path, names=['k', 'power'])
-        
+
         self.ezmock_pk = {
             'real': pk_real,
             'zdist': {
@@ -148,7 +118,7 @@ class EZmock():
                 'quad': pk_zdist_quad,
             },
         }
-        
+
         # nbodykit computed
         nmesh = self.params['grid_num']
         mesh_kwargs = dict(
@@ -176,38 +146,45 @@ class EZmock():
             'real': pk_real,
             'zdist': pk_zdist,
         }
-        
+
         self.twop_cf = None
         if import_cf_real or import_cf_zdist:
             self.twop_cf = dict()
         if import_cf_real:
             cf_file = '{}.dat.bin5.corr.mono'.format(self.name)
-            cf_path = os.path.join(EZMOCK_OUT_DIR, cf_file)
+            cf_path = os.path.join(self.output_dir, cf_file)
             self.twop_cf['real'] = np.genfromtxt(cf_path, names=['r', 'corr'])
         if import_cf_zdist:
             self.twop_cf['zdist'] = dict()
-            
+
             cf_file = '{}.dat.bin5.corr.zdist.mono'.format(self.name)
-            cf_path = os.path.join(EZMOCK_OUT_DIR, cf_file)
+            cf_path = os.path.join(self.output_dir, cf_file)
             self.twop_cf['zdist']['mono'] = np.genfromtxt(cf_path, names=['r', 'corr'])
-            
+
             cf_file = '{}.dat.bin5.corr.zdist.quad'.format(self.name)
-            cf_path = os.path.join(EZMOCK_OUT_DIR, cf_file)
+            cf_path = os.path.join(self.output_dir, cf_file)
             self.twop_cf['zdist']['quad'] = np.genfromtxt(cf_path, names=['r', 'corr'])
-      
-    
+
+    def _catalog_fname(self):
+        return os.path.join(self.output_dir, f'{self.name}.dat')
+
+    def _zspace_catalog_fname(self):
+        return os.path.join(self.output_dir, f'{self.name}.dat.zdist')
+
     def _import_ezmock_catalog(self, **kwargs):
         """
         Import a catalog generated by EZmock with given `name_stem`
         """
-        fname = os.path.join(EZMOCK_OUT_DIR, f'{self.name}.dat')
+        fname = self._catalog_fname()
         column_names = ['x', 'y', 'z', 'vx', 'vy', 'vz']
         catalog = nbodykit.source.catalog.file.CSVCatalog(fname, column_names)
 
-        catalog['Position'] = catalog['x'][:, None] * [1, 0, 0] + \
-            catalog['y'][:, None] * [0, 1, 0] + catalog['z'][:, None] * [0, 0, 1]
-        catalog['Velocity'] = catalog['vx'][:, None] * [1, 0, 0] + \
-            catalog['vy'][:, None] * [0, 1, 0] + catalog['vz'][:, None] * [0, 0, 1]
+        catalog['Position'] = nbodykit.transform.StackColumns(
+            catalog['x'], catalog['y'], catalog['z'],
+        )
+        catalog['Velocity'] = nbodykit.transform.StackColumns(
+            catalog['vx'], catalog['vy'], catalog['vz'],
+        )
 
         # see nbodykit docs for meaning
         catalog['VelocityOffset'] = self.params['rsd_factor'] * catalog['Velocity']
@@ -223,64 +200,13 @@ class EZmock():
 
         return catalog
 
-#     @classmethod
-#     def _generate_ezmock_sbatch(
-#         cls,
-#         sbatch_path,
-#         params_file_path,
-#         time_limit,
-#         ezmock_binary=EZMOCK_BINARY_PATH,
-#     ):
-#         """
-#         Parameters
-#         ----------
-#         sbatch_path : str
-#         params_file_path : str
-#         time_limit : datetime.timedelta
-#             time limit for the slurm job
-#         ezmock_binary : str
-#             path to the EZmock binary
-#         """
-#         time_limit_str = cls._slurm_time_format(time_limit)
-#         print('Time limit = {}'.format(time_limit_str))
-    
-#         generated_sbatch = cls.ezmock_submit_template.render(
-#             job_name='ezmock',
-#             time_limit=time_limit_str,
-#             params_file_path=params_file_path,
-#             ezmock_binary=ezmock_binary,
-#         )
-#         with open(sbatch_path, 'w+') as fp:
-#             fp.write(generated_sbatch)
-#         os.chmod(sbatch_path, 0o755)
-        
-#     @staticmethod
-#     def _slurm_time_format(timedelta):
-#         """
-#         Format the duration `timedelta` in the Slurm time limit format,
-#         as specified in the sbatch(1) man page. Rounds down to the nearest
-#         second.
-        
-#         Parameters
-#         ----------
-#         timedelta : datetime.timedelta
-#             Duration to format.
-            
-#         Returns
-#         -------
-#         time_str : str
-#             Slurm-formatted string.
-#         """
-#         DAY = datetime.timedelta(days=1)
-#         SECOND = datetime.timedelta(seconds=1)
-#         days, remainder = divmod(timedelta, DAY)
-#         total_seconds = remainder // SECOND
-#         rounded_remainder = datetime.timedelta(seconds=total_seconds)
-        
-#         if days == 0:
-#             time_str = str(rounded_remainder)
-#         else:
-#             time_str = '{}-{}'.format(days, rounded_remainder)
 
-#         return time_str
-        
+    def _save_zspace_catalog(self):
+        fname = self._zspace_catalog_fname()
+
+        rsd_positions = self.catalog['RSDPosition'].compute()
+
+        # nbodykit does not automagically apply periodic boundary conditions!
+        np.mod(rsd_positions, self.params['boxsize'], out=rsd_positions)
+
+        np.savetxt(fname, rsd_positions, fmt='%1.3f')

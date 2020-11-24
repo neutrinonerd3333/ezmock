@@ -8,7 +8,7 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --export=NONE
 #SBATCH --time={{ time_limit }}
-#SBATCH --partition=kipac,iric
+#SBATCH --partition=owners,kipac,iric,hns
 
 module load ifort
 
@@ -16,10 +16,10 @@ export OMP_NUM_THREADS=16
 ulimit -c 10000
 ulimit -s unlimited
 
-{% for params_file, output_params_file, params_pickle, output_params_pickle in filenames %}
+{% for ezmock_binary_file, params_file, output_params_file, params_pickle, output_params_pickle in filenames %}
 
 echo "Starting EZmock on {{ params_file }}"
-time {{ ezmock_binary }} < {{ params_file }}
+time {{ ezmock_binary_file }} < {{ params_file }}
 cp {{ params_file }} {{ output_params_file }}
 cp {{ params_pickle }} {{ output_params_pickle }}
 {% endfor %}

@@ -7,7 +7,7 @@
 #SBATCH --ntasks=1
 #SBATCH --export=NONE
 #SBATCH --time={{ time_limit }}
-#SBATCH --partition=kipac,iric
+#SBATCH --partition=owners,kipac,iric,hns
 #SBATCH --cpus-per-task=16
 
 module load ifort
