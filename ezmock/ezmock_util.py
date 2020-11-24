@@ -30,10 +30,6 @@ EZMOCK_TEMP_DIR = os.path.join(scratch_path, 'ezmock', 'tempfiles/')
 os.makedirs(EZMOCK_TEMP_DIR, exist_ok=True)
 
 
-PLANCK15PK_PATH = '~/EZmock_eBOSS_LRG_ELG_empty/pks-and-corrs/20191026-planck15-loguniform-pk.dat'
-EZMOCK_BINARY_PATH = '~/EZmock_eBOSS_LRG_ELG_empty/fortran/pro_EZmock_pk_cf'
-
-
 class EZmock():
     """
     A Python wrapper around individual EZmock instances.
