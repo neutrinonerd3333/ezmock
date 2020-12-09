@@ -1,18 +1,14 @@
-import copy
-import datetime
-import fnmatch
+"""
+Functionality for importing EZmocks.
+"""
+
 import os
 import os.path
 import pickle
-import random
-import shlex
-import shutil
 import subprocess
-import time
 
 import numpy as np
 
-import jinja2
 import nbodykit.algorithms
 import nbodykit.cosmology
 import nbodykit.source.catalog
@@ -49,6 +45,10 @@ class EZmock():
 
     @property
     def bispec(self):
+        """
+        Compute the bispectrum of the EZmock catalog.
+        Requires the bispec code by Cheng Zhao.
+        """
         if self._bispec is not None:
             return self._bispec
 
