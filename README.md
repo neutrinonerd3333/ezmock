@@ -23,3 +23,15 @@ Next, edit the hardcoded paths `PLANCK15PK_PATH` and `EZMOCK_BINARY_PATH` in `ez
 to point to your linear PK file
 and your EZmock binary.
 These are used as defaults in the code.
+
+Then, edit the Slurm batch script template in the `templates` directory to fit
+your Slurm needs.
+
+`ezmock` will require a `$SCRATCH/ezmock` directory,
+where it stores all relevant files,
+including EZmock catalogs.
+
+
+## Example usage
+
+Please refer to the example notebook.
