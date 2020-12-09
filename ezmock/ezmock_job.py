@@ -1,3 +1,7 @@
+"""
+File for functions related to EZmock generation.
+"""
+
 import copy
 import datetime
 import fnmatch
@@ -24,12 +28,24 @@ os.makedirs(EZMOCK_OUT_DIR, exist_ok=True)
 EZMOCK_TEMP_DIR = os.path.join(scratch_path, 'ezmock', 'tempfiles/')
 os.makedirs(EZMOCK_TEMP_DIR, exist_ok=True)
 
-PLANCK15PK_PATH = '~/ezmock-codez/EZmock_eBOSS_LRG_ELG_empty/pks-and-corrs/20191026-planck15-loguniform-pk.dat'
+PLANCK15PK_PATH = \
+    '~/ezmock-codez/EZmock_eBOSS_LRG_ELG_empty/pks-and-corrs/20191026-planck15-loguniform-pk.dat'
 EZMOCK_BINARY_PATH = '~/ezmock-codez/EZmock_eBOSS_LRG_ELG_empty/fortran/pro_EZmock_pk_cf'
 
 
 def fortran_repr(obj):
-    if type(obj) is bool:
+    """
+    Parameters
+    ----------
+    obj : any
+        The object to represent in Fortran.
+
+    Returns : str
+        A string representation for Fortran. (In pracitce, '.true.' and '.false.' for bools
+        and repr(obj) for everything else.)
+    -------
+    """
+    if isinstance(obj, bool):
         return '.true.' if obj else '.false.'
     return repr(obj)
 
@@ -89,7 +105,55 @@ def generate_ezmock_params(
     cosmology=nbodykit.cosmology.Planck15,
 ):
     """
-    TODO
+    Parameters
+    ----------
+    output_prefix : str
+        name of this EZmock; will be included in all related files
+    output_path : str, optional
+        path to the directory to put the final EZmock results
+    pk_file_path : str, optional
+        path to the linear power spectrum file to use.
+        Optional as long as you make sure you edit the default
+        to point to the correct location...
+    boxsize : float
+        side length of the box, in Mpc/h
+    grid_num : int
+        number of mesh cells in one dimension (box side length / mesh side length)
+    redshift : float
+        the redshift of the catalog, used when computing redshift-space statistics
+    density : float
+        desired number density of the catalog, in 1 / (Mpc/h)^3
+    expect_A_pdf : float
+        PDF slope for EZmock.
+    density_cut : float
+        Density threshold for EZmock, in units of objects per cell.
+        Must be nonnegative.
+    scatter2 : float
+        Scatter parameter for EZmock.
+    zdist_fog : float
+        Must be nonnegative.
+    iseed : int32, optional
+        A random seed to give to EZmock; generated automatically if not specified.
+    dilute_factor : float, optional
+        Fraction of objects in EZmock catalog to use to compute the correlation function.
+        Required if `compute_CF or compute_CF_zdist`.
+    compute_CF : bool, optional
+        whether to compute the correlation function in real space (default: no)
+    compute_CF_zdist : bool, optional
+        whether to compute the correlation funciton in redshift space (default: no)
+    cf_max_r : float
+        maximum distance to compute the correlation function to, in Mpc/h
+    cf_bin_size : float
+        size of bins for correlation function computation, in Mpc/h
+    cosmology : nbodykit.cosmology.cosmology.Cosmology
+        the cosmology to use
+
+    Return
+    ------
+    params : dict
+        The params dictionary that will be input to the EZmock binary.
+    coparams : dict
+        The params dictionary, with some additional data for the EZmock class.
     """
     params = dict()
 
@@ -102,19 +166,18 @@ def generate_ezmock_params(
     params['boxsize'] = boxsize
     params['grid_num'] = grid_num
 
-    z = redshift
-    params['redshift'] = z
+    params['redshift'] = redshift
 
-    linear_pk_obj = nbodykit.cosmology.LinearPower(cosmology, z)
+    linear_pk_obj = nbodykit.cosmology.LinearPower(cosmology, redshift)
     sigma8_z0 = linear_pk_obj.sigma8
     sigma8_z = linear_pk_obj.sigma_r(8)
     growth_factor = sigma8_z / sigma8_z0
     params['grow2z0'] = growth_factor**2
 
     # f * H(z) * a/h = f * H/(1+z)/h
-    growth_rate = cosmology.scale_independent_growth_rate(z)  # 'f'
-    efunc = cosmology.efunc(z)  # This is H(z) / (100 * h) in units of km/s/Mpc
-    scale_factor = 1 / (1 + z)
+    growth_rate = cosmology.scale_independent_growth_rate(redshift)  # 'f'
+    efunc = cosmology.efunc(redshift)  # This is H(z) / (100 * h) in units of km/s/Mpc
+    scale_factor = 1 / (1 + redshift)
     rsd_factor = 1 / (scale_factor * 100 * efunc)
     params['zdist_rate'] = growth_rate / rsd_factor
 
@@ -214,6 +277,19 @@ def generate_ezmock_input_file(params, path):
 
 
 def does_output_prefix_exist(output_prefix):
+    """
+    Check whether a given `output_prefix` exists.
+
+    Parameters
+    ----------
+    output_prefix : str
+        A candidate identifier string for an EZmock
+
+    Returns
+    -------
+    bool
+        Whether the identifier string is already used by an EZmock in the default EZmock directory.
+    """
     # recognize existing output_prefixes
     # TODO check matching of params if we've already down the EZmock
     seen_output_prefixes = [fname[:-4] for fname in fnmatch.filter(os.listdir(EZMOCK_OUT_DIR), '*.dat')]
@@ -271,9 +347,28 @@ def make_job(
     ezmock_binary=EZMOCK_BINARY_PATH,
     **kwargs,
 ):
+    """
+    Parameters
+    ----------
+    output_prefix : str
+        Identifier for the EZmock, to be used in all relevant files.
+    verbose : bool, optional
+    kwargs : dict
+        Keyword arguments per `generate_ezmock_params`
+
+    Returns
+    -------
+    EZmockJob
+        An object containing all relevant job information that can be run or
+        chunked with other `EZmockJob` objects.
+
+    See Also
+    --------
+    generate_ezmock_params :
+        generates a params dictionary containing EZmock parameters
+    """
     if does_output_prefix_exist(output_prefix):
         raise UserWarning(f'output_prefix {output_prefix} already exists!')
-        return
 
     params, coparams = generate_ezmock_params(output_prefix, **kwargs)
 
@@ -322,22 +417,11 @@ def make_job(
     return EZmockJob(time_limit, [filenames_tuple])
 
 
-def generate(
-    output_prefix,
-    verbose=False,
-    ezmock_binary=EZMOCK_BINARY_PATH,
-    **kwargs,
-):
-    job = make_job(
-        output_prefix,
-        verbose=False,
-        ezmock_binary=EZMOCK_BINARY_PATH,
-        **kwargs,
-    )
-    job.run()
-
-
 class EZmockJob():
+    """
+    Object representing an EZmock job to send to Slurm.
+    """
+
     _current_dir = os.path.dirname(os.path.realpath(__file__))
     _template_dir = os.path.join(_current_dir, '../templates')
     jinja_loader = jinja2.FileSystemLoader(_template_dir)  # jinja wants abs path
@@ -346,6 +430,23 @@ class EZmockJob():
 
     @classmethod
     def chunk(cls, jobs, chunk_size):
+        """
+        Given a list of individual EZmock jobs, produce a series of EZmock jobs
+        by chunking them into segments of `chunk_size` jobs.
+
+        Parameters
+        ----------
+        jobs : list of EZmockJob
+            The jobs to divide into chunks.
+        chunk_size : int
+            Number of jobs in each chunk.
+
+        Returns
+        -------
+        job_chunks : list of EZmockJob
+            A list of the chunked jobs, each consisting of `chunk_size` jobs
+            from `jobs` (except possibly the last).
+        """
         job_chunks = []
         for i in range(0, len(jobs), chunk_size):
             job_chunk = cls.empty()
@@ -357,16 +458,32 @@ class EZmockJob():
 
     @classmethod
     def empty(cls):
+        """
+        Returns an empty EZmock job.
+        """
         return EZmockJob(datetime.timedelta(), [])
 
-    def __init__(self, time_limit, filenames, binaries=None):
+    def __init__(self, time_limit, filenames):
         """
-        filenames : list of tuples (binary_file, params_file, output_params_file, params_pickle, output_params_pickle)
+        Parameters
+        ----------
+        time_limit : datetime.timedelta
+            time limit to use on the Slurm job.
+        filenames : list of 5-tuples of strings
+            Each tuple consists of relevant paths. These paths are
+            `binary_file` : path to the EZmock binary to use
+            `params_file` : path to the params file to feed to EZmock
+            `output_params_file` : path to copy the params file to
+            `params_pickle` : path to a pickled version of the params
+            `output_params_pickle` : path to copy the params pickle
         """
         self.time_limit = time_limit
         self.filenames = copy.deepcopy(filenames)
 
     def run(self, verbose=True, time_limit=None):
+        """
+        Run the EZmock job.
+        """
         actual_time_limit = self.time_limit if time_limit is None else time_limit
         time_limit_str = self._slurm_time_format(actual_time_limit)
 
@@ -391,9 +508,7 @@ class EZmockJob():
         ezmock_cmd = ['sbatch', shlex.quote(sbatch_path)]
         print(' '.join(ezmock_cmd))
 
-        process = subprocess.run(ezmock_cmd)
-        if process.returncode != 0:
-            raise RuntimeError('EZmock returned with nonzero exit code')
+        return subprocess.run(ezmock_cmd, check=True)
 
     def __add__(self, other):
         return EZmockJob(
@@ -415,7 +530,7 @@ class EZmockJob():
 
         Returns
         -------
-        time_str : str
+        str
             Slurm-formatted string.
         """
         DAY = datetime.timedelta(days=1)
