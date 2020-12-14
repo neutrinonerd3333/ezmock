@@ -487,11 +487,10 @@ class EZmockJob():
         actual_time_limit = self.time_limit if time_limit is None else time_limit
         time_limit_str = self._slurm_time_format(actual_time_limit)
 
-        # TODO shell-escape filenames!
         generated_sbatch = self.ezmock_multisubmit_template.render(
             job_name='ezmock',
             time_limit=time_limit_str,
-            filenames=self.filenames,
+            filenames=self._shell_escaped_filenames(),
         )
 
         # microsecond field because we can run these quite quickly
@@ -515,6 +514,12 @@ class EZmockJob():
             self.time_limit + other.time_limit,
             self.filenames + other.filenames,
         )
+
+    def _shell_escaped_filenames(self):
+        return [
+            [shlex.quote(fname) for fname in filename_tuple]
+            for filename_tuple in self.filenames
+        ]
 
     @staticmethod
     def _slurm_time_format(timedelta):
