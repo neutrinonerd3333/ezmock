@@ -16,20 +16,24 @@ import time
 import jinja2
 import nbodykit.cosmology
 
+# TODO phase out os.path; use pathlib
+PACKAGE_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), os.pardir)
 
-# TODO make these globals configurable
+# TODO make these globals configurable?
 
-scratch_path = os.environ['SCRATCH']
-EZMOCK_OUT_DIR = os.path.join(scratch_path, 'ezmock', 'mock_output/')  # this slash is important
-# EZmock doesn't sanitize input :<
+EZMOCK_SCRATCH_PATH = os.path.join(os.environ['SCRATCH'], 'ezmock')
+
+# the trailing slashes are important; EZmock doesn't sanitize input
+EZMOCK_OUT_DIR = os.path.join(EZMOCK_SCRATCH_PATH, 'mock_output/')
+EZMOCK_TEMP_DIR = os.path.join(EZMOCK_SCRATCH_PATH, 'tempfiles/')
+
+# make the scratch directories if they don't exist
 os.makedirs(EZMOCK_OUT_DIR, exist_ok=True)
-
-# create a directory for temp files if it doesn't yet exist
-EZMOCK_TEMP_DIR = os.path.join(scratch_path, 'ezmock', 'tempfiles/')
 os.makedirs(EZMOCK_TEMP_DIR, exist_ok=True)
 
-PLANCK15PK_PATH = \
-    '~/ezmock-codez/EZmock_eBOSS_LRG_ELG_empty/pks-and-corrs/20191026-planck15-loguniform-pk.dat'
+PLANCK15PK_PATH = os.path.join(PACKAGE_DIR, 'pks', '20191026-planck15-loguniform-pk.dat')
+
+# modify as necessary!
 EZMOCK_BINARY_PATH = '~/ezmock-codez/EZmock_eBOSS_LRG_ELG_empty/fortran/pro_EZmock_pk_cf'
 
 
@@ -214,7 +218,7 @@ def generate_ezmock_params(
     params['antidamping'] = 2
 
     # not used if antidamping > 1
-    params['pknwfile'] = '~/ezmock-codez/EZmock_eBOSS_LRG_ELG_empty/pks-and-corrs/PlanckDM.nowiggle.pk'
+    params['pknwfile'] = os.path.join(PACKAGE_DIR, 'pks', 'PlanckDM.nowiggle.pk')
 
     # correlation function computation
 
@@ -422,8 +426,7 @@ class EZmockJob():
     Object representing an EZmock job to send to Slurm.
     """
 
-    _current_dir = os.path.dirname(os.path.realpath(__file__))
-    _template_dir = os.path.join(_current_dir, '../templates')
+    _template_dir = os.path.join(PACKAGE_DIR, 'templates')
     jinja_loader = jinja2.FileSystemLoader(_template_dir)  # jinja wants abs path
     jinja_template_env = jinja2.Environment(loader=jinja_loader)
     ezmock_multisubmit_template = jinja_template_env.get_template('ezmock-multisubmit-template.sbatch')
