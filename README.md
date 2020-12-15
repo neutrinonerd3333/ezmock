@@ -9,6 +9,8 @@ This package does two things:
 ## Installation
 
 You should already have a compiled EZmock binary somewhere.
+Make sure you have execute permissions for the binary.
+
 You should also have a environment variable `$SCRATCH` defined on your system,
 giving the path to the your scratch directory.
 Then clone this repo,
@@ -26,6 +28,12 @@ These are used as defaults in the code.
 
 Then, edit the Slurm batch script template in the `templates` directory to fit
 your Slurm needs.
+In particular, make sure to edit the following options:
+* `--output` and `--error` should point to your desired Slurm output paths
+* `--cpus-per-task` (on NERSC, for example, it's often better to have this be _twice_ the number of OpenMP threads)
+* `--partition`
+* `--account`
+* `OMP_NUM_THREADS`
 
 `ezmock` will require a `$SCRATCH/ezmock` directory,
 where it stores all relevant files,

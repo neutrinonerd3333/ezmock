@@ -10,6 +10,7 @@
 #SBATCH --time={{ time_limit }}
 #SBATCH --partition=owners,kipac,iric,hns
 
+# load ifort (modify as appropriate)
 module load ifort
 
 export OMP_NUM_THREADS=16

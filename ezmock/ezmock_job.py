@@ -41,8 +41,8 @@ def fortran_repr(obj):
         The object to represent in Fortran.
 
     Returns : str
-        A string representation for Fortran. (In pracitce, '.true.' and '.false.' for bools
-        and repr(obj) for everything else.)
+        A string representation for Fortran. (In practice, '.true.' and '.false.'
+        for bools and repr(obj) for everything else.)
     -------
     """
     if isinstance(obj, bool):
