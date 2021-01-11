@@ -14,7 +14,7 @@ Make sure you have execute permissions for the binary.
 You should also have a environment variable `$SCRATCH` defined on your system,
 giving the path to the your scratch directory.
 Then clone this repo,
-enter the conda environment you want to install inside some conda environment,
+enter the conda environment you want to install inside,
 and install via `pip`:
 ```bash
 pip install -e .
