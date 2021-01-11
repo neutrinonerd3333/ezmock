@@ -43,7 +43,7 @@ including EZmock catalogs.
 
 ## Example usage
 
-Please refer to the example notebook.
+Please refer to the example notebook (`docs/tutorial.ipynb`).
 
 
 ## Contributing
