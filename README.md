@@ -21,14 +21,15 @@ pip install -e .
 ```
 This step should install all necessary dependencies.
 
-Next, edit the hardcoded paths `PLANCK15PK_PATH` and `EZMOCK_BINARY_PATH` in `ezmock/ezmock_job.py`
-to point to your linear PK file
-and your EZmock binary.
-These are used as defaults in the code.
+Next, edit the hardcoded path `EZMOCK_BINARY_PATH` in `ezmock/ezmock_job.py`
+to point to your EZmock binary.
+If you want to compute bispectra with this code,
+build Cheng Zhao's `bispec` script and edit `BISPEC_BINARY` in `ezmock/ezmock_job.py`.
 
-Then, edit the Slurm batch script template in the `templates` directory to fit
-your Slurm needs.
-In particular, make sure to edit the following options:
+Then, create a Slurm batch script template `ezmock-multisubmit-template.sbatch`
+in the `templates` directory to fit your Slurm needs.
+There are some examples in the directory; you should basically only need to modify the slurm options.
+Make sure to edit the following options:
 * `--output` and `--error` should point to your desired Slurm output paths
 * `--cpus-per-task` (on NERSC, for example, it's often better to have this be _twice_ the number of OpenMP threads)
 * `--partition`
@@ -43,3 +44,10 @@ including EZmock catalogs.
 ## Example usage
 
 Please refer to the example notebook.
+
+
+## Contributing
+
+Pull requests are most welcome,
+as this code grew organically from some personal scripts
+and is by no means perfect.

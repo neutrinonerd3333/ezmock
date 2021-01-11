@@ -31,7 +31,8 @@ EZMOCK_TEMP_DIR = os.path.join(EZMOCK_SCRATCH_PATH, 'tempfiles/')
 os.makedirs(EZMOCK_OUT_DIR, exist_ok=True)
 os.makedirs(EZMOCK_TEMP_DIR, exist_ok=True)
 
-PLANCK15PK_PATH = os.path.join(PACKAGE_DIR, 'pks', '20191026-planck15-loguniform-pk.dat')
+PKS_PATH = os.path.join(PACKAGE_DIR, 'data', 'pks')
+PLANCK15PK_PATH = os.path.join(PKS_PATH, '20191026-planck15-loguniform-pk.dat')
 
 # modify as necessary!
 EZMOCK_BINARY_PATH = '~/ezmock-codez/EZmock_eBOSS_LRG_ELG_empty/fortran/pro_EZmock_pk_cf'
@@ -218,7 +219,7 @@ def generate_ezmock_params(
     params['antidamping'] = 2
 
     # not used if antidamping > 1
-    params['pknwfile'] = os.path.join(PACKAGE_DIR, 'pks', 'PlanckDM.nowiggle.pk')
+    params['pknwfile'] = os.path.join(PKS_PATH, 'PlanckDM.nowiggle.pk')
 
     # correlation function computation
 

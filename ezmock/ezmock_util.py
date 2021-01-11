@@ -16,14 +16,18 @@ import nbodykit.source.catalog
 
 # TODO make these globals configurable
 
+PACKAGE_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), os.pardir)
 scratch_path = os.environ['SCRATCH']
-EZMOCK_OUT_DIR = os.path.join(scratch_path, 'ezmock', 'mock_output/')  # this slash is important
-# EZmock doesn't sanitize input :<
-os.makedirs(EZMOCK_OUT_DIR, exist_ok=True)
 
-# create a directory for temp files if it doesn't yet exist
+# the trailing slashes are important -- EZmock doesn't sanitize input :<
+EZMOCK_OUT_DIR = os.path.join(scratch_path, 'ezmock', 'mock_output/') 
 EZMOCK_TEMP_DIR = os.path.join(scratch_path, 'ezmock', 'tempfiles/')
+os.makedirs(EZMOCK_OUT_DIR, exist_ok=True)
 os.makedirs(EZMOCK_TEMP_DIR, exist_ok=True)
+
+
+# TODO make this configurable!
+BISPEC_BINARY = os.path.join(os.environ['HOME'], 'codez', 'bispec_box', 'bispec')
 
 
 class EZmock():
@@ -55,16 +59,14 @@ class EZmock():
         realspace_output_file = os.path.join(self.output_dir, f'{self.name}.dat.CICassign.bispec')
         zspace_output_file = os.path.join(self.output_dir, f'{self.name}.dat.CICassign.bispec.zdist')
 
-        # TODO make this configurable!
-        bispec_binary = os.path.join(os.environ['HOME'], 'codez', 'bispec_box', 'bispec')
-        conf_file = os.path.join(os.environ['HOME'], 'codez', 'bispec_box', 'unit-fits-bispec.conf')
+        conf_file = os.path.join(PACKAGE_DIR, 'data', 'ezmock-bispec.conf')
         env = dict(os.environ, OMP_NUM_THREADS='4')
 
         boxsize = self.params['boxsize']
 
         if not os.path.isfile(realspace_output_file):
             catalog_file = self._catalog_fname()
-            bispec_cmd = f'{bispec_binary} --conf={conf_file} --box-max={boxsize} --input={catalog_file} --output={realspace_output_file}'
+            bispec_cmd = f'{BISPEC_BINARY} --conf={conf_file} --box-max={boxsize} --input={catalog_file} --output={realspace_output_file}'
             cmd = f'module load gsl && {bispec_cmd}'
             subprocess.run(
                 cmd,
@@ -77,7 +79,7 @@ class EZmock():
             self._save_zspace_catalog()
 
             zspace_catalog_file = self._zspace_catalog_fname()
-            bispec_cmd = f'{bispec_binary} --conf={conf_file} --box-max={boxsize} --input={zspace_catalog_file} --output={zspace_output_file}'
+            bispec_cmd = f'{BISPEC_BINARY} --conf={conf_file} --box-max={boxsize} --input={zspace_catalog_file} --output={zspace_output_file}'
             subprocess.check_output(
                 f'module load gsl && {bispec_cmd}',
                 env=env,
